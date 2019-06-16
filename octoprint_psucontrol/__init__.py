@@ -110,7 +110,7 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         self.sensingMethod = ''
         self.senseGPIOPin = 0
         self.invertsenseGPIOPin = False
-        self.senseGPIOPinPUD = ''
+        self.senseGPIOPinPUD = 0
         self.senseSystemCommand = ''
         self.isPSUOn = False
         self._noSensing_isPSUOn = False
@@ -120,7 +120,13 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         self._waitForHeaters = False
         self._skipIdleTimer = False
         self._configuredGPIOPins = []
-
+        
+        self.enableOnOffButton = False
+        self.buttonGPIOPin = []
+        self.buttonGPIOPinPUD = 0
+        self.enableOnOffButtonLED = False
+        self.buttonLEDGPIOPin = []
+        self.buttonLEDGPIOPinPUD = False
 
     def on_settings_initialized(self):
         self.GPIOMode = self._settings.get(["GPIOMode"])
@@ -175,7 +181,7 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         self.invertsenseGPIOPin = self._settings.get_boolean(["invertsenseGPIOPin"])
         self._logger.debug("invertsenseGPIOPin: %s" % self.invertsenseGPIOPin)
 
-        self.senseGPIOPinPUD = self._settings.get(["senseGPIOPinPUD"])
+        self.senseGPIOPinPUD = self._settings.get_int(["senseGPIOPinPUD"])
         self._logger.debug("senseGPIOPinPUD: %s" % self.senseGPIOPinPUD)
 
         self.senseSystemCommand = self._settings.get(["senseSystemCommand"])
@@ -210,14 +216,32 @@ class PSUControl(octoprint.plugin.StartupPlugin,
             self._logger.info("Using GPIO for On/Off")
         elif self.switchingMethod == 'SYSTEM':
             self._logger.info("Using System Commands for On/Off")
-            
+
         if self.sensingMethod == 'INTERNAL':
             self._logger.info("Using internal tracking for PSU on/off state.")
         elif self.sensingMethod == 'GPIO':
             self._logger.info("Using GPIO for tracking PSU on/off state.")
         elif self.sensingMethod == 'SYSTEM':
             self._logger.info("Using System Commands for tracking PSU on/off state.")
-            
+
+        self.enableOnOffButton = self._settings.get(["enableOnOffButton"])
+        self._logger.debug("enableOnOffButton: %s" % self.enableOnOffButton) 
+
+        self.buttonGPIOPin = self._settings.get_int(["buttonGPIOPin"])
+        self._logger.debug("buttonGPIOPin: %s" % self.buttonGPIOPin)
+
+        self.buttonGPIOPinPUD = self._settings.get_int(["buttonGPIOPinPUD"])
+        self._logger.debug("buttonGPIOPinPUD: %s" % self.buttonGPIOPinPUD)
+
+        self.enableOnOffButtonLED = self._settings.get(["enableOnOffButtonLED"])
+        self._logger.debug("enableOnOffButtonLED: %s" % self.enableOnOffButtonLED)
+
+        self.buttonLEDGPIOPin = self._settings.get_int(["buttonLEDGPIOPin"])
+        self._logger.debug("buttonLEDGPIOPin: %s" % self.buttonLEDGPIOPin)
+
+        self.buttonLEDGPIOPinPUD = self._settings.get_boolean(["buttonLEDGPIOPinPUD"])
+        self._logger.debug("buttonLEDGPIOPinPUD: %s" % self.buttonLEDGPIOPinPUD)
+
         if self.switchingMethod == 'GPIO' or self.sensingMethod == 'GPIO':
             self._configure_gpio()
 
@@ -286,34 +310,121 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         
         if self.sensingMethod == 'GPIO':
             self._logger.info("Using GPIO sensing to determine PSU on/off state.")
-            self._logger.info("Configuring GPIO for pin %s" % self.senseGPIOPin)
+            self._logger.info("Sensing GPIO for pin %s as %s", self.senseGPIOPin, self.senseGPIOPinPUD)
 
-            if self.senseGPIOPinPUD == 'PULL_UP':
+            if self.senseGPIOPinPUD == 1:
                 pudsenseGPIOPin = GPIO.PUD_UP
-            elif self.senseGPIOPinPUD == 'PULL_DOWN':
+            elif self.senseGPIOPinPUD == 0:
                 pudsenseGPIOPin = GPIO.PUD_DOWN
             else:
                 pudsenseGPIOPin = GPIO.PUD_OFF
     
             try:
+                self._logger.info("Configuring sensing GPIO for pin %s as %s", self.senseGPIOPin, pudsenseGPIOPin)
                 GPIO.setup(self._gpio_get_pin(self.senseGPIOPin), GPIO.IN, pull_up_down=pudsenseGPIOPin)
+                
+                #self._logger.info("Adding GPIO rising event detect on pin %s with edge: both", self.senseGPIOPin)
+                #GPIO.add_event_detect(self.senseGPIOPin, GPIO.RISING, callback=self.handle_sense_gpio_RISING_control, bouncetime=200)
+                
+                #self._logger.info("Adding GPIO falling event detect on pin %s with edge: both", self.senseGPIOPin)
+                #GPIO.add_event_detect(self.senseGPIOPin, GPIO.FALLING, callback=self.handle_sense_gpio_FALLING_control, bouncetime=200)
+                
                 self._configuredGPIOPins.append(self.senseGPIOPin)
             except (RuntimeError, ValueError) as e:
                 self._logger.error(e)
         
         if self.switchingMethod == 'GPIO':
             self._logger.info("Using GPIO for On/Off")
-            self._logger.info("Configuring GPIO for pin %s" % self.onoffGPIOPin)
+            self._logger.info("psu GPIO for pin %s as %s", self.onoffGPIOPin, self.invertonoffGPIOPin)
             try:
                 if not self.invertonoffGPIOPin:
                     initial_pin_output=GPIO.LOW
                 else:
                     initial_pin_output=GPIO.HIGH
+                    
+                self._logger.info("Configuring psu GPIO for pin %s as %s", self.onoffGPIOPin, initial_pin_output)
                 GPIO.setup(self._gpio_get_pin(self.onoffGPIOPin), GPIO.OUT, initial=initial_pin_output)
                 self._configuredGPIOPins.append(self.onoffGPIOPin)
             except (RuntimeError, ValueError) as e:
                 self._logger.error(e)
 
+        if self.enableOnOffButtonLED :
+            self._logger.info("Showing LED on Button for On/Off")
+            self._logger.info("LED Button GPIO pin is %s as %s", self.buttonLEDGPIOPin, self.buttonLEDGPIOPinPUD)
+            if self.buttonLEDGPIOPinPUD == 1:
+                initial_bpin_output = GPIO.HIGH
+            elif self.buttonLEDGPIOPinPUD == 0:
+                initial_bpin_output = GPIO.LOW
+            else:
+                initial_bpin_output = GPIO.LOW
+
+            try:
+                self._logger.info("Configuring Button LED GPIO on pin %s as %s", self.buttonLEDGPIOPin, initial_bpin_output)
+                GPIO.setup(self._gpio_get_pin(self.buttonLEDGPIOPin), GPIO.OUT, initial=initial_bpin_output)
+                self._configuredGPIOPins.append(self.buttonLEDGPIOPin)
+            except (RuntimeError, ValueError) as e:
+                self._logger.error(e)
+
+        if self.enableOnOffButton :
+            self._logger.info("Using Button for On/Off")
+            self._logger.info("Button GPIO pin is %s as %s", self.buttonGPIOPin, self.buttonGPIOPinPUD)
+
+            if self.buttonGPIOPinPUD == 1:
+                pudbuttonGPIOPin = GPIO.PUD_UP
+            else:
+                pudbuttonGPIOPin = GPIO.PUD_DOWN
+            
+            try:
+                self._logger.info("Configuring button GPIO for pin %s as %s", self.buttonGPIOPin, pudbuttonGPIOPin)
+                GPIO.setup(self._gpio_get_pin(self.buttonGPIOPin), GPIO.IN, pull_up_down=pudbuttonGPIOPin)
+                
+                self._logger.info("Adding GPIO Pressed event detect on pin %s with edge: Both", self.buttonGPIOPin)
+                GPIO.add_event_detect(self.buttonGPIOPin, GPIO.BOTH, callback=self.handle_button_gpio_control, bouncetime=200)
+                
+                self._configuredGPIOPins.append(self.buttonGPIOPin)
+            except (RuntimeError, ValueError) as e:
+                self._logger.error(e)
+
+    def handle_button_gpio_control(self, channel):
+        if GPIO.input(channel):
+            if self.buttonGPIOPinPUD == 1:
+                self.button_released_control()
+            else:
+                self.button_pressed_control()
+                
+            self._logger.debug("Rising Edge on %s", channel)  
+        else:
+            if self.buttonGPIOPinPUD == 0:
+                self.button_released_control()
+            else:
+                self.button_pressed_control()
+                
+            self._logger.debug("Falling Edge on %s", channel)  
+                
+    def button_pressed_control(self):
+        self._logger.info("Button pressed event triggered on channel %s", self.buttonGPIOPin)
+        self.turn_psu_on()
+        
+    def button_released_control(self):
+        self._logger.info("Button depressed event triggered on channel %s", self.buttonGPIOPin)
+        N=0
+        while N<5:
+            if self.buttonLEDGPIOPinPUD == 1:
+                GPIO.output(self.buttonLEDGPIOPin, GPIO.HIGH)
+            else:
+                GPIO.output(self.buttonLEDGPIOPin, GPIO.LOW)        
+            time.sleep(0.5) # Sleep for 1 second
+            if self.buttonLEDGPIOPinPUD == 1:
+                GPIO.output(self.buttonLEDGPIOPin, GPIO.LOW)
+            else:
+                GPIO.output(self.buttonLEDGPIOPin, GPIO.HIGH)
+            time.sleep(0.5) # Sleep for 1 second
+            N=N+1
+            if ((not GPIO.input(self.buttonGPIOPin) and self.buttonGPIOPinPUD == 1) or (GPIO.input(self.buttonGPIOPin) and self.buttonGPIOPinPUD == 0)):
+                return
+                
+        self.turn_psu_off()
+                
     def check_psu_state(self):
         self._check_psu_state_event.set()
 
@@ -534,7 +645,21 @@ class PSUControl(octoprint.plugin.StartupPlugin,
 
             if self.sensingMethod not in ('GPIO','SYSTEM'):
                 self._noSensing_isPSUOn = True
-         
+            
+            if self.enableOnOffButtonLED:
+                self._logger.debug("Switching Button LED State.")
+                if self.buttonLEDGPIOPinPUD == 1:
+                    initial_bpin_output = GPIO.LOW
+                elif self.buttonLEDGPIOPinPUD == 0:
+                    initial_bpin_output = GPIO.HIGH
+
+                try:
+                    self._logger.info("setting Button LED GPIO on pin %s as %s", self.buttonLEDGPIOPin, initial_bpin_output)
+                    GPIO.setup(self._gpio_get_pin(self.buttonLEDGPIOPin), GPIO.OUT, initial=initial_bpin_output)
+                    self._configuredGPIOPins.append(self.buttonLEDGPIOPin)
+                except (RuntimeError, ValueError) as e:
+                    self._logger.error(e)
+                    
             time.sleep(0.1 + self.postOnDelay)
             self.check_psu_state()
         
@@ -574,7 +699,21 @@ class PSUControl(octoprint.plugin.StartupPlugin,
                 
             if self.sensingMethod not in ('GPIO','SYSTEM'):
                 self._noSensing_isPSUOn = False
-                        
+
+            if self.enableOnOffButtonLED:
+                self._logger.debug("Switching Button LED State.")
+                if self.buttonLEDGPIOPinPUD == 1:
+                    initial_bpin_output = GPIO.HIGH
+                elif self.buttonLEDGPIOPinPUD == 0:
+                    initial_bpin_output = GPIO.LOW
+
+                try:
+                    self._logger.debug("setting Button LED GPIO on pin %s as %s", self.buttonLEDGPIOPin, initial_bpin_output)
+                    GPIO.setup(self._gpio_get_pin(self.buttonLEDGPIOPin), GPIO.OUT, initial=initial_bpin_output)
+                    self._configuredGPIOPins.append(self.buttonLEDGPIOPin)
+                except (RuntimeError, ValueError) as e:
+                    self._logger.error(e)
+                
             time.sleep(0.1)
             self.check_psu_state()
 
@@ -620,7 +759,7 @@ class PSUControl(octoprint.plugin.StartupPlugin,
             sensingMethod = 'INTERNAL',
             senseGPIOPin = 0,
             invertsenseGPIOPin = False,
-            senseGPIOPinPUD = '',
+            senseGPIOPinPUD = 0,
             senseSystemCommand = '',
             autoOn = False,
             autoOnTriggerGCodeCommands = "G0,G1,G2,G3,G10,G11,G28,G29,G32,M104,M106,M109,M140,M190",
@@ -628,7 +767,13 @@ class PSUControl(octoprint.plugin.StartupPlugin,
             powerOffWhenIdle = False,
             idleTimeout = 30,
             idleIgnoreCommands = 'M105',
-            idleTimeoutWaitTemp = 50
+            idleTimeoutWaitTemp = 50,
+            enableOnOffButton = False,
+            buttonGPIOPin = 0,
+            buttonGPIOPinPUD = '',
+            enableOnOffButtonLED = False,
+            buttonLEDGPIOPin = 0,
+            invertbuttonLEDGPIOPin = False
         )
 
     def on_settings_save(self, data):
@@ -639,6 +784,11 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         old_invertsenseGPIOPin = self.invertsenseGPIOPin
         old_senseGPIOPinPUD = self.senseGPIOPinPUD
         old_switchingMethod = self.switchingMethod
+        
+        old_buttonGPIOPin = self.buttonGPIOPin
+        old_buttonGPIOPinPUD = self.buttonGPIOPinPUD
+        old_buttonLEDGPIOPin = self.buttonLEDGPIOPin
+        old_buttonLEDGPIOPinPUD = self.buttonLEDGPIOPinPUD
 
         octoprint.plugin.SettingsPlugin.on_settings_save(self, data)
         
@@ -658,7 +808,7 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         self.sensingMethod = self._settings.get(["sensingMethod"])
         self.senseGPIOPin = self._settings.get_int(["senseGPIOPin"])
         self.invertsenseGPIOPin = self._settings.get_boolean(["invertsenseGPIOPin"])
-        self.senseGPIOPinPUD = self._settings.get(["senseGPIOPinPUD"])
+        self.senseGPIOPinPUD = self._settings.get_int(["senseGPIOPinPUD"])
         self.senseSystemCommand = self._settings.get(["senseSystemCommand"])
         self.autoOn = self._settings.get_boolean(["autoOn"])
         self.autoOnTriggerGCodeCommands = self._settings.get(["autoOnTriggerGCodeCommands"])
@@ -669,6 +819,13 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         self.enablePowerOffWarningDialog = self._settings.get_boolean(["enablePowerOffWarningDialog"])
         self._idleIgnoreCommandsArray = self.idleIgnoreCommands.split(',')
         self.idleTimeoutWaitTemp = self._settings.get_int(["idleTimeoutWaitTemp"])
+        
+        self.enableOnOffButton = self._settings.get_int(["enableOnOffButton"])
+        self.buttonGPIOPin = self._settings.get_int(["buttonGPIOPin"])
+        self.buttonGPIOPinPUD = self._settings.get_int(["buttonGPIOPinPUD"])
+        self.enableOnOffButtonLED = self._settings.get_int(["enableOnOffButtonLED"])
+        self.buttonLEDGPIOPin = self._settings.get_int(["buttonLEDGPIOPin"])
+        self.buttonLEDGPIOPinPUD = self._settings.get_int(["buttonLEDGPIOPinPUD"])
 
         #GCode switching and PseudoOnOff are not compatible.
         if self.switchingMethod == 'GCODE' and self.enablePseudoOnOff:
@@ -679,12 +836,17 @@ class PSUControl(octoprint.plugin.StartupPlugin,
 
         if ((old_GPIOMode != self.GPIOMode or
              old_onoffGPIOPin != self.onoffGPIOPin or
+             old_buttonGPIOPin != self.buttonGPIOPin or
+             old_buttonGPIOPinPUD != self.buttonGPIOPinPUD or
+             old_buttonLEDGPIOPin != self.buttonLEDGPIOPin or
+             old_buttonLEDGPIOPinPUD != self.buttonLEDGPIOPinPUD or            
              old_senseGPIOPin != self.senseGPIOPin or
              old_sensingMethod != self.sensingMethod or
              old_invertsenseGPIOPin != self.invertsenseGPIOPin or
              old_senseGPIOPinPUD != self.senseGPIOPinPUD or
              old_switchingMethod != self.switchingMethod) and
             (self.switchingMethod == 'GPIO' or self.sensingMethod == 'GPIO')):
+            GPIO.remove_event_detect(old_buttonGPIOPin)
             self._configure_gpio()
 
         self._start_idle_timer()
