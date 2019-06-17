@@ -121,7 +121,6 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         self._waitForHeaters = False
         self._skipIdleTimer = False
         self._configuredGPIOPins = []
-        
         self.enableOnOffButton = False
         self.buttonGPIOPin = []
         self.buttonGPIOPinPUD = 0
@@ -327,12 +326,6 @@ class PSUControl(octoprint.plugin.StartupPlugin,
                 self._logger.info("Configuring sensing GPIO for pin %s as %s", self.senseGPIOPin, pudsenseGPIOPin)
                 GPIO.setup(self._gpio_get_pin(self.senseGPIOPin), GPIO.IN, pull_up_down=pudsenseGPIOPin)
                 
-                #self._logger.info("Adding GPIO rising event detect on pin %s with edge: both", self.senseGPIOPin)
-                #GPIO.add_event_detect(self.senseGPIOPin, GPIO.RISING, callback=self.handle_sense_gpio_RISING_control, bouncetime=200)
-                
-                #self._logger.info("Adding GPIO falling event detect on pin %s with edge: both", self.senseGPIOPin)
-                #GPIO.add_event_detect(self.senseGPIOPin, GPIO.FALLING, callback=self.handle_sense_gpio_FALLING_control, bouncetime=200)
-                
                 self._configuredGPIOPins.append(self.senseGPIOPin)
             except (RuntimeError, ValueError) as e:
                 self._logger.error(e)
@@ -406,11 +399,11 @@ class PSUControl(octoprint.plugin.StartupPlugin,
             self._logger.debug("Falling Edge on %s", channel)  
                 
     def button_pressed_control(self):
-        self._logger.info("Button pressed event triggered on channel %s", self.buttonGPIOPin)
+        self._logger.debug("Button pressed event triggered on channel %s", self.buttonGPIOPin)
         self.turn_psu_on()
         
     def button_released_control(self):
-        self._logger.info("Button depressed event triggered on channel %s", self.buttonGPIOPin)
+        self._logger.debug("Button depressed event triggered on channel %s", self.buttonGPIOPin)
         N=0
         while N<5:
             if self.buttonLEDGPIOPinPUD == 1:
