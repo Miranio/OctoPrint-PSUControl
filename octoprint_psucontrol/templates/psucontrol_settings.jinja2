@@ -93,6 +93,21 @@
     </div>
     <!-- /ko -->
     <!-- /ko -->
+    <div class="control-group">
+        <div class="controls">
+            <label class="checkbox">
+            <input type="checkbox" data-bind="checked: settings.plugins.psucontrol.enablePriorOnGCodeCommand"> Send code prior to turn on ( usefull for Klipper ).
+            </label>
+        </div>
+    </div>
+    <!-- ko if: settings.plugins.psucontrol.enablePriorOnGCodeCommand() -->
+    <div class="control-group">
+        <label class="control-label">GCode to send</label>
+        <div class="controls">
+            <input type="text" class="input-block-level" data-bind="value: settings.plugins.psucontrol.priorOnGCodeCommand">
+        </div>
+    </div>
+    <!-- /ko -->
     <br />
 
     <h4>Physical Button</h4>

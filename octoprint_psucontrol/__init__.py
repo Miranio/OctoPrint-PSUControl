@@ -244,6 +244,13 @@ class PSUControl(octoprint.plugin.StartupPlugin,
 
         self.buttonLEDGPIOPinPUD = self._settings.get_boolean(["buttonLEDGPIOPinPUD"])
         self._logger.debug("buttonLEDGPIOPinPUD: %s" % self.buttonLEDGPIOPinPUD)
+        
+        self.enablePriorOnGCodeCommand = self._settings.get(["enablePriorOnGCodeCommand"])
+        self._logger.debug("enablePriorOnGCodeCommand: %s" % self.enablePriorOnGCodeCommand)
+        
+        self.PriorOnGCodeCommand = self._settings.get(["PriorOnGCodeCommand"])
+        self._idleIgnoreCommandsArray = self.PriorOnGCodeCommand.split(',')
+        self._logger.debug("PriorOnGCodeCommand: %s" % self.PriorOnGCodeCommand)
 
         if self.switchingMethod == 'GPIO' or self.sensingMethod == 'GPIO':
             self._configure_gpio()
@@ -404,21 +411,22 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         
     def button_released_control(self):
         self._logger.debug("Button depressed event triggered on channel %s", self.buttonGPIOPin)
-        N=0
-        while N<5:
-            if self.buttonLEDGPIOPinPUD == 1:
-                GPIO.output(self.buttonLEDGPIOPin, GPIO.HIGH)
-            else:
-                GPIO.output(self.buttonLEDGPIOPin, GPIO.LOW)        
-            time.sleep(0.5) # Sleep for 1 second
-            if self.buttonLEDGPIOPinPUD == 1:
-                GPIO.output(self.buttonLEDGPIOPin, GPIO.LOW)
-            else:
-                GPIO.output(self.buttonLEDGPIOPin, GPIO.HIGH)
-            time.sleep(0.5) # Sleep for 1 second
-            N=N+1
-            if ((not GPIO.input(self.buttonGPIOPin) and self.buttonGPIOPinPUD == 1) or (GPIO.input(self.buttonGPIOPin) and self.buttonGPIOPinPUD == 0)):
-                return
+        if self.enablePowerOffWarningDialog:
+            N=0
+            while N<5:
+                if self.buttonLEDGPIOPinPUD == 1:
+                    GPIO.output(self.buttonLEDGPIOPin, GPIO.HIGH)
+                else:
+                    GPIO.output(self.buttonLEDGPIOPin, GPIO.LOW)        
+                time.sleep(0.5) # Sleep for 1 second
+                if self.buttonLEDGPIOPinPUD == 1:
+                    GPIO.output(self.buttonLEDGPIOPin, GPIO.LOW)
+                else:
+                    GPIO.output(self.buttonLEDGPIOPin, GPIO.HIGH)
+                time.sleep(0.5) # Sleep for 1 second
+                N=N+1
+                if ((not GPIO.input(self.buttonGPIOPin) and self.buttonGPIOPinPUD == 1) or (GPIO.input(self.buttonGPIOPin) and self.buttonGPIOPinPUD == 0)):
+                    return
                 
         self.turn_psu_off()
                 
@@ -610,7 +618,11 @@ class PSUControl(octoprint.plugin.StartupPlugin,
                 return (None,)
 
     def turn_psu_on(self):
-        if self.switchingMethod == 'GCODE' or self.switchingMethod == 'GPIO' or self.switchingMethod == 'SYSTEM':
+        if self.enablePriorOnGCodeCommand:
+            self._printer.commands(self.PriorOnGCodeCommand)
+            time.sleep(0.1) #just wait a bit to make sure klipper register
+    
+        if self.switchingMethod == 'GCODE' or self.switchingMethod == 'GPIO' or self.switchingMethod == 'SYSTEM': #why is this test there ? It's an always true situation
             self._logger.info("Switching PSU On")
             if self.switchingMethod == 'GCODE':
                 self._logger.debug("Switching PSU On Using GCODE: %s" % self.onGCodeCommand)
@@ -661,7 +673,7 @@ class PSUControl(octoprint.plugin.StartupPlugin,
             self.check_psu_state()
         
     def turn_psu_off(self):
-        if self.switchingMethod == 'GCODE' or self.switchingMethod == 'GPIO' or self.switchingMethod == 'SYSTEM':
+        if self.switchingMethod == 'GCODE' or self.switchingMethod == 'GPIO' or self.switchingMethod == 'SYSTEM': #why is it here also ? again ... always true
             self._logger.info("Switching PSU Off")
             if self.switchingMethod == 'GCODE':
                 self._logger.debug("Switching PSU Off Using GCODE: %s" % self.offGCodeCommand)
@@ -771,7 +783,9 @@ class PSUControl(octoprint.plugin.StartupPlugin,
             buttonGPIOPinPUD = '',
             enableOnOffButtonLED = False,
             buttonLEDGPIOPin = 0,
-            invertbuttonLEDGPIOPin = False
+            invertbuttonLEDGPIOPin = False,
+            enablePriorOnGCodeCommand = False,
+            PriorOnGCodeCommand = "FIRMWARE_RESTART"
         )
 
     def on_settings_save(self, data):
@@ -825,6 +839,9 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         self.enableOnOffButtonLED = self._settings.get_int(["enableOnOffButtonLED"])
         self.buttonLEDGPIOPin = self._settings.get_int(["buttonLEDGPIOPin"])
         self.buttonLEDGPIOPinPUD = self._settings.get_int(["buttonLEDGPIOPinPUD"])
+        
+        self.enablePriorOnGCodeCommand = self._settings.get_int(["enablePriorOnGCodeCommand"])
+        self.PriorOnGCodeCommand = self._settings.get(["PriorOnGCodeCommand"])
 
         #GCode switching and PseudoOnOff are not compatible.
         if self.switchingMethod == 'GCODE' and self.enablePseudoOnOff:
